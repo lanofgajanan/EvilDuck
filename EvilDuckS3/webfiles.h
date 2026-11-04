@@ -71,6 +71,44 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
     </section>
 
+    <section class="card">
+      <div class="cardhead"><h2>Keyboard</h2><span id="keyboardMods" class="chip subtle">No modifiers</span></div>
+      <div class="stack">
+        <div class="row gap">
+          <input class="input mono" id="keyboardText" placeholder="Type text for the device" autocomplete="off" />
+          <button class="btn primary" type="button" data-keyboard-text>Send</button>
+        </div>
+        <div id="keyboard" class="keyboard" role="group" aria-label="On-screen keyboard">
+          <div class="keyboard-row">
+            <button class="btn small" type="button" data-mod="CTRL">Ctrl</button>
+            <button class="btn small" type="button" data-mod="SHIFT">Shift</button>
+            <button class="btn small" type="button" data-mod="ALT">Alt</button>
+            <button class="btn small" type="button" data-mod="GUI">Cmd</button>
+            <button class="btn small" type="button" data-key="TAB">Tab</button>
+            <button class="btn small" type="button" data-key="ENTER">Enter</button>
+            <button class="btn small" type="button" data-key="ESC">Esc</button>
+          </div>
+          <div class="keyboard-row">
+            <button class="btn small" type="button" data-key="BACKSPACE">Backspace</button>
+            <button class="btn small" type="button" data-key="DELETE">Delete</button>
+            <button class="btn small" type="button" data-key="HOME">Home</button>
+            <button class="btn small" type="button" data-key="END">End</button>
+            <button class="btn small" type="button" data-key="PAGEUP">PgUp</button>
+            <button class="btn small" type="button" data-key="PAGEDOWN">PgDn</button>
+            <button class="btn small" type="button" data-key="SPACE">Space</button>
+          </div>
+          <div class="keyboard-row keyboard-arrows">
+            <button class="btn small" type="button" data-key="LEFT">←</button>
+            <button class="btn small" type="button" data-key="DOWN">↓</button>
+            <button class="btn small" type="button" data-key="UP">↑</button>
+            <button class="btn small" type="button" data-key="RIGHT">→</button>
+            <button class="btn small ghost" type="button" data-clear-mods>Clear modifiers</button>
+          </div>
+        </div>
+        <div class="hint">Text is sent as STRING; keys move the cursor or edit the target device.</div>
+      </div>
+    </section>
+
     <!-- Autorun Payload -->
     <section class="card">
       <div class="cardhead"><h2>Autorun Payload</h2></div>
@@ -384,6 +422,7 @@ a:hover { text-decoration: underline; }
 .btn.danger:hover { background: #aa1818; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
 .btn.ghost { background: transparent; border-color: #444; }
+.btn.active { border-color: #0066cc; background: #123b66; }
 
 .input {
   width: 100%;
@@ -403,6 +442,11 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 .stack { display: flex; flex-direction: column; gap: 8px; }
+.keyboard { display: flex; flex-direction: column; gap: 6px; }
+.keyboard-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.keyboard-row .btn { flex: 1 1 auto; }
+.keyboard-arrows { justify-content: center; }
+.keyboard-arrows .btn { flex: 0 1 auto; min-width: 44px; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .label { font-size: 12px; color: #888; }
 .hint { font-size: 11px; color: #777; }
@@ -806,6 +850,66 @@ async function sendLine(){
     log('Send error: '+e);
   }
 }
+
+let keyboardModifiers=[];
+function keyboardModifierLabel(){
+  const el=document.getElementById('keyboardMods');
+  if(el) el.textContent=keyboardModifiers.length?keyboardModifiers.join(' + '):'No modifiers';
+}
+function clearKeyboardModifiers(){
+  keyboardModifiers=[];
+  document.querySelectorAll('#keyboard [data-mod].active').forEach(el=>el.classList.remove('active'));
+  keyboardModifierLabel();
+}
+async function sendKeyboardCommand(command){
+  if(!command) return;
+  const line=keyboardModifiers.length ? keyboardModifiers.join(' ')+' '+command : command;
+  const fd=new FormData();
+  fd.append('line',line);
+  try{
+    const r=await fetch('/send',{method:'POST',body:fd,headers:duckHeaders()});
+    const text=await r.text();
+    if(!r.ok) log('Keyboard failed ('+r.status+'): '+text);
+    else log('Keyboard: '+line);
+  }catch(e){ log('Keyboard error: '+e); }
+}
+async function sendKeyboardText(){
+  const el=document.getElementById('keyboardText');
+  const text=el?.value||'';
+  if(!text) return;
+  const fd=new FormData();
+  fd.append('line','STRING '+text);
+  try{
+    const r=await fetch('/send',{method:'POST',body:fd,headers:duckHeaders()});
+    const result=await r.text();
+    if(!r.ok) log('Keyboard failed ('+r.status+'): '+result);
+    else { log('Keyboard: text sent'); el.value=''; }
+  }catch(e){ log('Keyboard error: '+e); }
+}
+
+const keyboard=document.getElementById('keyboard');
+if(keyboard){
+  keyboard.addEventListener('click',e=>{
+    const button=e.target.closest('button');
+    if(!button) return;
+    const modifier=button.dataset.mod;
+    if(modifier){
+      const index=keyboardModifiers.indexOf(modifier);
+      if(index<0){keyboardModifiers.push(modifier);button.classList.add('active');}
+      else {keyboardModifiers.splice(index,1);button.classList.remove('active');}
+      keyboardModifierLabel();
+      return;
+    }
+    if(button.dataset.clearMods){clearKeyboardModifiers();return;}
+    sendKeyboardCommand(button.dataset.key);
+  });
+}
+const keyboardText=document.getElementById('keyboardText');
+const keyboardSend=document.querySelector('[data-keyboard-text]');
+if(keyboardSend) keyboardSend.addEventListener('click',sendKeyboardText);
+if(keyboardText) keyboardText.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();sendKeyboardText();}
+});
 
 document.getElementById('uploadForm')?.addEventListener('submit',async(e)=>{
   e.preventDefault();
